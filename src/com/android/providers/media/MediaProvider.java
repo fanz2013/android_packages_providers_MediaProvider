@@ -112,6 +112,9 @@ import libcore.io.Libcore;
  * Separate databases are kept for each external storage card we see (using the
  * card's ID as an index).  The content visible at content://media/external/...
  * changes with the card.
+ * 
+ * To make the media content provider to support content provider uri in its DATA Column: 
+ * we made little changes in method openFileAndEnforcePathPermissionsHelper.
  */
 public class MediaProvider extends ContentProvider {
     private static final Uri MEDIA_URI = Uri.parse("content://media");
@@ -4422,6 +4425,37 @@ public class MediaProvider extends ContentProvider {
         return pfd;
     }
 
+    /** 
+     * Return the content of the data column. It should be a file path or a content provider uri. 
+     * @param uri the uri to query the media  provider database. 
+     * @return the content of the data colum. 
+     * @throws FileNotFoundException happens. 
+     */ 
+    private String getDataColumn(Uri uri) throws FileNotFoundException {
+        final Cursor cursor = query(uri, new String[] { MediaColumns.DATA }, null, null, null); 
+        if (cursor == null) { 
+               throw new FileNotFoundException("Missing cursor for " + uri); 
+        } 
+        String dataColume = null; 
+        try { 
+            switch (cursor.getCount()) { 
+            case 0: 
+                throw new FileNotFoundException("No entry for " + uri); 
+            case 1: 
+                if (cursor.moveToFirst()) { 
+                    dataColume = cursor.getString(0); 
+                    return dataColume; 
+                } else { 
+                    throw new FileNotFoundException("Unable to read entry for " + uri); 
+                } 
+            default: 
+                throw new FileNotFoundException("Multiple items at " + uri); 
+            } 
+        } finally { 
+            cursor.close(); 
+        } 
+    }
+
     /**
      * Return the {@link MediaColumns#DATA} field for the given {@code Uri}.
      */
@@ -4456,38 +4490,48 @@ public class MediaProvider extends ContentProvider {
      */
     private ParcelFileDescriptor openFileAndEnforcePathPermissionsHelper(Uri uri, String mode)
             throws FileNotFoundException {
-        final int modeBits = ContentResolver.modeToMode(uri, mode);
-        final boolean isWrite = (modeBits & MODE_WRITE_ONLY) != 0;
-
-        File file = queryForDataFile(uri);
-        final String path;
-        try {
-            path = file.getCanonicalPath();
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Unable to resolve canonical path for " + file, e);
-        }
-
-        if (path.startsWith(sExternalPath)) {
-            getContext().enforceCallingOrSelfPermission(
-                    READ_EXTERNAL_STORAGE, "External path: " + path);
-
-            if (isWrite) {
+        final int modeBits = ContentResolver.modeToMode(uri, mode); 
+        final boolean isWrite = (modeBits & MODE_WRITE_ONLY) != 0; 
+        // Return the content of the data column 
+        String dataColumn = getDataColumn(uri); 
+        // First check if the uri is a content provider uri 
+        if (dataColumn.startsWith("content://")) { 
+            // This is content provider uri, for now, just support read 
+            if (isWrite) { 
+                throw new IllegalArgumentException("Only support read for content provider uri, data column: " + dataColumn + " mode: "+ mode ); 
+            } 
+            Uri contentUri = Uri.parse(dataColumn); 
+            return  getContext().getContentResolver().openFileDescriptor(contentUri, "r"); 
+        } else { 
+            File file = new File(dataColumn); 
+            final String path;
+            try {
+                path = file.getCanonicalPath();
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Unable to resolve canonical path for " + file, e);
+            }
+    
+            if (path.startsWith(sExternalPath)) {
                 getContext().enforceCallingOrSelfPermission(
-                        WRITE_EXTERNAL_STORAGE, "External path: " + path);
+                        READ_EXTERNAL_STORAGE, "External path: " + path);
+    
+                if (isWrite) {
+                    getContext().enforceCallingOrSelfPermission(
+                            WRITE_EXTERNAL_STORAGE, "External path: " + path);
+                }
+    
+                // Bypass emulation layer when file is opened for reading, but only
+                // when opening read-only and we have an exact match.
+                if (modeBits == MODE_READ_ONLY) {
+                    file = Environment.maybeTranslateEmulatedPathToInternal(file);
+                }
+    
+            } else if (path.startsWith(sCachePath)) {
+                getContext().enforceCallingOrSelfPermission(
+                        ACCESS_CACHE_FILESYSTEM, "Cache path: " + path);
             }
-
-            // Bypass emulation layer when file is opened for reading, but only
-            // when opening read-only and we have an exact match.
-            if (modeBits == MODE_READ_ONLY) {
-                file = Environment.maybeTranslateEmulatedPathToInternal(file);
-            }
-
-        } else if (path.startsWith(sCachePath)) {
-            getContext().enforceCallingOrSelfPermission(
-                    ACCESS_CACHE_FILESYSTEM, "Cache path: " + path);
+            return ParcelFileDescriptor.open(file, modeBits);
         }
-
-        return ParcelFileDescriptor.open(file, modeBits);
     }
 
     private class ThumbData {
