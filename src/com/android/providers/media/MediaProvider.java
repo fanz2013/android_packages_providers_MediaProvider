@@ -4499,8 +4499,12 @@ public class MediaProvider extends ContentProvider {
             // This is content provider uri, for now, just support read 
             if (isWrite) { 
                 throw new IllegalArgumentException("Only support read for content provider uri, data column: " + dataColumn + " mode: "+ mode ); 
-            } 
-            Uri contentUri = Uri.parse(dataColumn); 
+            }
+            // Append the query parameters. For example, if it is a thumbnail request
+            // Content provider will return different image based on this flag
+            String queryString = uri.getQuery();
+            String contentUriString = queryString == null ? dataColumn : dataColumn + "?" + queryString; 
+            Uri contentUri = Uri.parse(contentUriString); 
             return  getContext().getContentResolver().openFileDescriptor(contentUri, "r"); 
         } else { 
             File file = new File(dataColumn); 
