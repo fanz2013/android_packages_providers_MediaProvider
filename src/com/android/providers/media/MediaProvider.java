@@ -4425,41 +4425,10 @@ public class MediaProvider extends ContentProvider {
         return pfd;
     }
 
-    /** 
-     * Return the content of the data column. It should be a file path or a content provider uri. 
-     * @param uri the uri to query the media  provider database. 
-     * @return the content of the data colum. 
-     * @throws FileNotFoundException happens. 
-     */ 
-    private String getDataColumn(Uri uri) throws FileNotFoundException {
-        final Cursor cursor = query(uri, new String[] { MediaColumns.DATA }, null, null, null); 
-        if (cursor == null) { 
-               throw new FileNotFoundException("Missing cursor for " + uri); 
-        } 
-        String dataColume = null; 
-        try { 
-            switch (cursor.getCount()) { 
-            case 0: 
-                throw new FileNotFoundException("No entry for " + uri); 
-            case 1: 
-                if (cursor.moveToFirst()) { 
-                    dataColume = cursor.getString(0); 
-                    return dataColume; 
-                } else { 
-                    throw new FileNotFoundException("Unable to read entry for " + uri); 
-                } 
-            default: 
-                throw new FileNotFoundException("Multiple items at " + uri); 
-            } 
-        } finally { 
-            cursor.close(); 
-        } 
-    }
-
     /**
      * Return the {@link MediaColumns#DATA} field for the given {@code Uri}.
      */
-    private File queryForDataFile(Uri uri) throws FileNotFoundException {
+    private String queryForData(Uri uri) throws FileNotFoundException {
         final Cursor cursor = query(
                 uri, new String[] { MediaColumns.DATA }, null, null, null);
         if (cursor == null) {
@@ -4472,7 +4441,7 @@ public class MediaProvider extends ContentProvider {
                     throw new FileNotFoundException("No entry for " + uri);
                 case 1:
                     if (cursor.moveToFirst()) {
-                        return new File(cursor.getString(0));
+                        return cursor.getString(0);
                     } else {
                         throw new FileNotFoundException("Unable to read entry for " + uri);
                     }
@@ -4493,9 +4462,9 @@ public class MediaProvider extends ContentProvider {
         final int modeBits = ContentResolver.modeToMode(uri, mode); 
         final boolean isWrite = (modeBits & MODE_WRITE_ONLY) != 0; 
         // Return the content of the data column 
-        String dataColumn = getDataColumn(uri); 
+        String dataColumn = queryForData(uri);
         // First check if the uri is a content provider uri 
-        if (dataColumn.startsWith("content://")) { 
+        if (dataColumn.startsWith(ContentResolver.SCHEME_CONTENT)) {
             // This is content provider uri, for now, just support read 
             if (isWrite) { 
                 throw new IllegalArgumentException("Only support read for content provider uri, data column: " + dataColumn + " mode: "+ mode ); 
